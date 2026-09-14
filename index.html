@@ -3,8 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Chůvička</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -14,6 +12,9 @@
   h1 small { display: block; font-weight: 400; font-size: 13px; color: #8b91a0; margin-top: 4px; }
   .screen { display: none; flex-direction: column; gap: 12px; }
   .screen.active { display: flex; }
+  .screen > * + * { margin-top: 12px; }        /* iOS 12 nezná flex gap */
+  .row > * + * { margin-left: 10px; margin-top: 0; }
+  .btn.warnbtn { background: #b8741a; }
   .btn { display: block; width: 100%; padding: 16px; font-size: 18px; font-weight: 600; border: 0; border-radius: 12px; background: #2d6cdf; color: #fff; text-align: center; cursor: pointer; }
   .btn.secondary { background: #262a33; color: #e8eaf0; }
   .btn.danger { background: #b3261e; }
@@ -34,7 +35,7 @@
   .code-big { text-align: center; font-family: Menlo, monospace; font-size: 34px; letter-spacing: 6px; padding: 10px; background: #161a22; border-radius: 12px; }
   .meter { height: 10px; background: #1c2029; border-radius: 6px; overflow: hidden; }
   .meter > div { height: 100%; width: 0; background: #4fd18a; transition: width .08s linear; }
-  #dim { display: none; position: fixed; inset: 0; background: #000; z-index: 99; color: #333; font-size: 14px; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+  #dim { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; background: #000; z-index: 99; color: #333; font-size: 14px; align-items: center; justify-content: center; text-align: center; padding: 30px; }
   #dim.on { display: flex; }
   .foot { margin-top: auto; padding-top: 18px; text-align: center; }
   .link { color: #8b91a0; font-size: 13px; background: none; border: 0; text-decoration: underline; cursor: pointer; }
@@ -67,21 +68,28 @@
       <option value="environment">Zadní (lepší obraz, telefon položit displejem nahoru)</option>
       <option value="user">Přední (telefon opřít displejem k dítěti)</option>
     </select>
+    <label>Kvalita obrazu</label>
+    <select id="cam-quality" style="margin:6px 0 12px">
+      <option value="low">Nízká – 320×240, nejstabilnější na mobilních datech</option>
+      <option value="mid" selected>Střední – 640×480</option>
+    </select>
     <label class="chk"><input type="checkbox" id="cam-audio" checked> Přenášet i mikrofon</label>
     <button class="btn big" style="margin-top:8px" onclick="startCamera()">▶ Spustit kameru</button>
-    <div class="hint" style="margin-top:10px">Safari se zeptá na povolení kamery a mikrofonu – povolte. Poté v Nastavení iPhonu vypněte automatický zámek: <b>Nastavení → Zobrazení a jas → Uzamknout → Nikdy</b>, jinak se kamera po chvíli vypne. Stránka musí zůstat otevřená v popředí.</div>
+    <div class="hint" style="margin-top:10px">Safari se zeptá na povolení kamery a mikrofonu – povolte. Poté v Nastavení iPhonu vypněte automatický zámek: <b>Nastavení → Zobrazení a jas → Uzamknout → Nikdy</b>, jinak se kamera po chvíli vypne. Stránka musí zůstat otevřená v popředí Safari (ne z ikony na ploše). Zapněte <b>Nerušit</b>, aby kameru nezastavila notifikace. Pokud kamera po čase vypadává, zvolte nízkou kvalitu.</div>
   </div>
 
   <div id="cam-live" style="display:none">
     <div class="code-big" id="cam-code-show"></div>
     <div class="hint" style="text-align:center;margin:6px 0 10px">Na druhém zařízení zvolte SLEDOVÁNÍ a zadejte tento kód</div>
     <div id="cam-status" class="status">Připojuji se…</div>
+    <button class="btn warnbtn" id="cam-restore" style="display:none" onclick="restoreCamera()">⚠️ Kamera se zastavila – klepněte pro obnovení</button>
     <video id="cam-video" autoplay playsinline muted style="margin-top:12px"></video>
     <div class="row" style="margin-top:12px">
       <button class="btn secondary" onclick="dim(true)">🌙 Ztmavit displej</button>
       <button class="btn danger" onclick="stopCamera()">■ Ukončit</button>
     </div>
     <div class="hint" style="margin-top:10px">Ztmavení displeje jen zakryje obraz černou plochou (šetří baterii a nesvítí do místnosti), kamera běží dál. Klepnutím ho zase zobrazíte.</div>
+    <div class="hint" style="margin-top:8px"><b>Když je obraz černý</b> i po obnovení stránky: zavřete Safari úplně (dvakrát stisknout Home, Safari odsunout nahoru), otevřete znovu a kameru spusťte. Telefon mějte v nabíječce, ať nedojde baterie, a nic na něm nespouštějte – notifikace a hovory kameru zastaví.</div>
   </div>
 </div>
 
@@ -97,6 +105,7 @@
     <video id="view-video" autoplay playsinline style="margin-top:12px"></video>
     <div class="meter" style="margin-top:10px"><div id="view-meter"></div></div>
     <div class="hint" style="text-align:center">hlasitost zvuku z pokoje</div>
+    <div class="hint" style="margin-top:8px">Stránka drží displej rozsvícený. Nechte ji ale v popředí – po přepnutí do jiné aplikace nebo zamknutí telefonu se přenos zastaví a po návratu se sám obnoví.</div>
     <button class="btn" id="view-unmute" style="display:none;margin-top:10px" onclick="unmute()">🔊 Klepněte pro zapnutí zvuku</button>
     <div class="row" style="margin-top:12px">
       <button class="btn secondary" onclick="fullscreen()">⛶ Celá obrazovka</button>
@@ -110,6 +119,7 @@
 <div id="dim" onclick="dim(false)">Kamera běží.<br>Klepnutím zobrazíte obraz.</div>
 
 <script src="peerjs.min.js"></script>
+<script src="nosleep.min.js"></script>
 <script>
 (function () {
   'use strict';
@@ -117,9 +127,7 @@
   var ICE = { iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+    { urls: 'stun:stun.cloudflare.com:3478' }
   ]};
   var qs = {};
   location.search.replace(/^\?/, '').split('&').forEach(function (p) {
@@ -136,6 +144,19 @@
     return s;
   }
 
+  /* detekce zamrzlé kamery: iOS 12 po přerušení dodává čistě černé snímky, ale stopa hlásí "live" */
+  var probeCanvas = document.createElement('canvas'); probeCanvas.width = 16; probeCanvas.height = 12;
+  function isBlackFrame(video) {
+    try {
+      if (!video.videoWidth || video.readyState < 2) return null;
+      var ctx = probeCanvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, 16, 12);
+      var d = ctx.getImageData(0, 0, 16, 12).data, max = 0;
+      for (var i = 0; i < d.length; i += 4) { if (d[i] > max) max = d[i]; if (d[i + 1] > max) max = d[i + 1]; if (d[i + 2] > max) max = d[i + 2]; }
+      return max <= 2;
+    } catch (e) { return null; }
+  }
+
   window.go = function (name) {
     ['home', 'cam', 'view'].forEach(function (n) { $('s-' + n).className = 'screen' + (n === name ? ' active' : ''); });
   };
@@ -145,17 +166,98 @@
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     $('https-warn').style.display = 'block';
   }
-  $('cam-code').value = qs.code ? cleanCode(qs.code) : randomCode();
+  var saved = null; try { saved = JSON.parse(localStorage.getItem('chuvicka_cam') || 'null'); } catch (e) {}
+  if (saved && saved.code) {
+    $('cam-code').value = saved.code; $('cam-facing').value = saved.facing || 'environment';
+    $('cam-quality').value = saved.quality || 'mid'; $('cam-audio').checked = saved.audio !== false;
+  } else $('cam-code').value = randomCode();
+  if (qs.code) $('cam-code').value = cleanCode(qs.code);
   if (qs.code) $('view-code').value = cleanCode(qs.code);
   if (qs.mode === 'cam' || qs.mode === 'view') go(qs.mode);
 
   /* ========== KAMERA ========== */
-  var camPeer = null, camStream = null, camConns = {};
+  var camPeer = null, camStream = null, camConns = {}, camState = 'ok', camHeartbeat = null, camCode = '';
+
+  var blackSince = 0, autoRestored = false;
+  function camVideoState() {
+    if (!camStream) return 'ended';
+    var t = camStream.getVideoTracks()[0];
+    if (!t || t.readyState === 'ended') return 'ended';
+    if (t.muted) return 'muted';
+    if (blackSince && Date.now() - blackSince > 10000) return 'black';
+    return 'ok';
+  }
+  function probeCamBlack() {
+    var b = isBlackFrame($('cam-video'));
+    if (b === true) { if (!blackSince) blackSince = Date.now(); }
+    else if (b === false) { blackSince = 0; autoRestored = false; }
+    if (blackSince && Date.now() - blackSince > 10000 && !autoRestored && !TEST) { autoRestored = true; restoreCamera(); }
+  }
+  function broadcastState() {
+    var msg = { type: 'state', video: camVideoState(), at: Date.now() };
+    Object.keys(camConns).forEach(function (k) { try { camConns[k].send(msg); } catch (e) {} });
+  }
+  function onCamTrackEvent() {
+    var st = camVideoState();
+    if (st !== camState) {
+      camState = st;
+      if (st === 'ok') { $('cam-restore').style.display = 'none'; updateCamStatus(); }
+      else {
+        setStatus('cam-status', st === 'ended' ? 'Kamera se vypnula (iOS ji ukončil – přerušení, hovor nebo nedostatek paměti).'
+          : st === 'black' ? 'Kamera zamrzla – obraz je černý (chyba iOS 12). Zavřete Safari úplně (2× Home, odsunout nahoru), otevřete stránku znovu a spusťte kameru.'
+          : 'Kamera přestala dodávat obraz (iOS ji pozastavil).', 'err');
+        $('cam-restore').style.display = 'block';
+        dim(false);
+      }
+      broadcastState();
+    }
+  }
+  function watchTracks(stream) {
+    stream.getTracks().forEach(function (t) {
+      t.addEventListener('ended', onCamTrackEvent);
+      t.addEventListener('mute', onCamTrackEvent);
+      t.addEventListener('unmute', onCamTrackEvent);
+    });
+  }
+  function camConstraints() {
+    var low = $('cam-quality').value === 'low';
+    return {
+      video: { facingMode: $('cam-facing').value, width: { ideal: low ? 320 : 640 }, height: { ideal: low ? 240 : 480 }, frameRate: { ideal: low ? 10 : 15, max: 20 } },
+      audio: $('cam-audio').checked
+    };
+  }
+  /* znovu získat kameru a vyměnit stopy v běžících hovorech (bez nového připojování) */
+  window.restoreCamera = function () {
+    if (TEST) { onCamTrackEvent(); return; }
+    setStatus('cam-status', 'Obnovuji kameru…', 'warn');
+    navigator.mediaDevices.getUserMedia(camConstraints()).then(function (stream) {
+      var old = camStream; camStream = stream; watchTracks(stream); blackSince = 0;
+      if (old) old.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+      var v = $('cam-video'); v.srcObject = stream; v.play().catch(function () {});
+      var replaced = 0;
+      if (camPeer) Object.keys(camPeer.connections).forEach(function (k) {
+        camPeer.connections[k].forEach(function (c) {
+          var pc = c.peerConnection; if (!pc || !pc.getSenders) return;
+          pc.getSenders().forEach(function (sn) {
+            if (!sn.track) return;
+            var nt = sn.track.kind === 'video' ? stream.getVideoTracks()[0] : stream.getAudioTracks()[0];
+            if (nt && sn.replaceTrack) { sn.replaceTrack(nt).catch(function () {}); replaced++; }
+          });
+        });
+      });
+      camState = 'unknown'; onCamTrackEvent();
+      if (!replaced && Object.keys(camConns).length) { /* starší Safari bez replaceTrack: restart spojení, sledování se samo připojí */ openCamPeer(camCode); }
+    }).catch(function (e) {
+      setStatus('cam-status', 'Kameru se nepodařilo obnovit (' + (e && e.name) + '). Zavřete Safari úplně a otevřete stránku znovu.', 'err');
+    });
+  };
 
   function getTestStream() {
     var c = document.createElement('canvas'); c.width = 640; c.height = 480;
     var ctx = c.getContext('2d');
+    var t0 = Date.now();
     setInterval(function () {
+      if (qs.black && Date.now() - t0 > qs.black * 1000) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 640, 480); return; }
       ctx.fillStyle = '#123'; ctx.fillRect(0, 0, 640, 480);
       ctx.fillStyle = '#fff'; ctx.font = '48px sans-serif';
       ctx.fillText('TEST ' + new Date().toLocaleTimeString(), 60, 250);
@@ -167,8 +269,10 @@
     var code = cleanCode($('cam-code').value);
     if (code.length < 4) { alert('Kód musí mít aspoň 4 znaky.'); return; }
     $('cam-code').value = code;
-    var facing = $('cam-facing').value;
-    var wantAudio = $('cam-audio').checked;
+    var low = $('cam-quality').value === 'low';
+    camCode = code;
+    keepAwake(true);
+    try { localStorage.setItem('chuvicka_cam', JSON.stringify({ code: code, facing: $('cam-facing').value, quality: $('cam-quality').value, audio: $('cam-audio').checked })); } catch (e) {}
 
     var got;
     if (TEST) {
@@ -177,14 +281,14 @@
       alert('Tento prohlížeč nepodporuje přístup ke kameře. Na iPhonu použijte Safari a adresu přes https://.');
       return;
     } else {
-      got = navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 20 } },
-        audio: wantAudio
-      });
+      got = navigator.mediaDevices.getUserMedia(camConstraints());
     }
 
     got.then(function (stream) {
-      camStream = stream;
+      camStream = stream; camState = 'ok'; watchTracks(stream);
+      $('cam-restore').style.display = 'none';
+      blackSince = 0; autoRestored = false;
+      clearInterval(camHeartbeat); camHeartbeat = setInterval(function () { probeCamBlack(); onCamTrackEvent(); broadcastState(); }, 5000);
       $('cam-setup').style.display = 'none';
       $('cam-live').style.display = 'block';
       $('cam-code-show').textContent = code;
@@ -197,6 +301,7 @@
   };
 
   function updateCamStatus() {
+    if (camState !== 'ok') return;
     var n = Object.keys(camConns).length;
     if (n === 0) setStatus('cam-status', 'Kamera běží. Čeká se na připojení sledování…', 'warn');
     else setStatus('cam-status', '● Sleduje se (' + n + ' zařízení). Kamera a mikrofon se přenáší.', 'ok');
@@ -213,7 +318,10 @@
       conn.on('open', function () {
         camConns[conn.peer] = conn;
         updateCamStatus();
+        try { conn.send({ type: 'state', video: camVideoState(), at: Date.now() }); } catch (e) {}
         var call = camPeer.call(conn.peer, camStream);
+        capBitrate(call, $('cam-quality').value === 'low' ? 250000 : 600000);
+        watchCamIce(call, conn);
         conn.on('close', function () { delete camConns[conn.peer]; try { call.close(); } catch (e) {} updateCamStatus(); });
         conn.on('error', function () { delete camConns[conn.peer]; updateCamStatus(); });
       });
@@ -238,10 +346,36 @@
     });
   }
 
+  function capBitrate(call, bps) {
+    setTimeout(function () {
+      try {
+        var pc = call.peerConnection; if (!pc || !pc.getSenders) return;
+        pc.getSenders().forEach(function (sn) {
+          if (!sn.track || sn.track.kind !== 'video' || !sn.getParameters) return;
+          var p = sn.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+          p.encodings[0].maxBitrate = bps;
+          sn.setParameters(p).catch(function () {});
+        });
+      } catch (e) {}
+    }, 1000);
+  }
+  function watchCamIce(call, conn) {
+    setTimeout(function () {
+      var pc = call.peerConnection; if (!pc) return;
+      pc.addEventListener('iceconnectionstatechange', function () {
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+          delete camConns[conn.peer]; try { conn.close(); } catch (e) {} try { call.close(); } catch (e) {}
+          updateCamStatus();
+        }
+      });
+    }, 500);
+  }
+
   window.stopCamera = function (keepStream) {
     if (camPeer) { try { camPeer.destroy(); } catch (e) {} camPeer = null; }
     camConns = {};
     if (!keepStream) {
+      keepAwake(false); clearInterval(camHeartbeat); $('cam-restore').style.display = 'none';
       if (camStream) { camStream.getTracks().forEach(function (t) { t.stop(); }); camStream = null; }
       $('cam-video').srcObject = null;
       $('cam-live').style.display = 'none';
@@ -252,14 +386,43 @@
 
   /* ========== SLEDOVÁNÍ ========== */
   var viewPeer = null, viewConn = null, viewCall = null, viewActive = false, retryTimer = null, audioCtx = null, meterRaf = null;
+  var statsTimer = null, discTimer = null, viewCode = '', gen = 0, camReported = 'ok', camReportedAt = 0;
+  function live(g) { return viewActive && g === gen; }
+
+  /* ---- udržení displeje (Wake Lock API, jinak NoSleep – skrytý video loop) ---- */
+  var noSleep = null, wakeLock = null, awakeWanted = false;
+  function keepAwake(on) {
+    awakeWanted = on;
+    if (on) {
+      if (navigator.wakeLock && navigator.wakeLock.request) {
+        navigator.wakeLock.request('screen').then(function (wl) { wakeLock = wl; }).catch(function () { noSleepOn(); });
+      } else noSleepOn();
+    } else {
+      if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+      if (noSleep) { try { noSleep.disable(); } catch (e) {} }
+    }
+  }
+  function noSleepOn() {
+    try {
+      if (!noSleep && window.NoSleep) noSleep = new NoSleep();
+      if (noSleep) { var pr = noSleep.enable(); if (pr && pr.catch) pr.catch(function () {}); }
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    if (awakeWanted) keepAwake(true);
+    if (viewActive) checkAlive(true);
+    if (camPeer && camPeer.disconnected && !camPeer.destroyed) { try { camPeer.reconnect(); } catch (e) {} }
+  });
 
   window.startViewer = function () {
     var code = cleanCode($('view-code').value);
     if (code.length < 4) { alert('Zadejte kód z telefonu u dítěte.'); return; }
     $('view-code').value = code;
-    viewActive = true;
+    viewActive = true; viewCode = code;
     $('view-setup').style.display = 'none';
     $('view-live').style.display = 'block';
+    keepAwake(true);
     // AudioContext must be created inside a user gesture (Safari)
     try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.resume) audioCtx.resume(); } catch (e) { audioCtx = null; }
     connectViewer(code);
@@ -273,23 +436,35 @@
   }
 
   function connectViewer(code) {
-    if (viewPeer) { try { viewPeer.destroy(); } catch (e) {} }
+    var g = ++gen;                       // každé připojení má své číslo; události starých spojení se ignorují
+    clearTimeout(retryTimer); clearInterval(statsTimer); clearTimeout(discTimer);
+    if (viewPeer) { var old = viewPeer; viewPeer = null; try { old.destroy(); } catch (e) {} }
     viewConn = null; viewCall = null;
     setStatus('view-status', 'Připojuji se…');
-    viewPeer = new Peer(undefined, { config: ICE, debug: 1 });
+    var peer = new Peer(undefined, { config: ICE, debug: 1 });
+    viewPeer = peer;
 
-    viewPeer.on('open', function () {
+    peer.on('open', function () {
+      if (!live(g)) return;
       setStatus('view-status', 'Hledám kameru s kódem ' + code + '…');
-      viewConn = viewPeer.connect(PREFIX + code, { reliable: true });
-      viewConn.on('open', function () { setStatus('view-status', 'Kamera nalezena, čekám na video…', 'ok'); });
-      viewConn.on('close', function () { scheduleRetry(code, 3000, 'Kamera se odpojila.'); });
-      viewConn.on('error', function () { scheduleRetry(code, 3000, 'Spojení s kamerou selhalo.'); });
+      viewConn = peer.connect(PREFIX + code, { reliable: true });
+      viewConn.on('open', function () { if (live(g)) setStatus('view-status', 'Kamera nalezena, čekám na video…', 'ok'); });
+      viewConn.on('data', function (m) {
+        if (!live(g) || !m || m.type !== 'state') return;
+        camReported = m.video; camReportedAt = Date.now();
+        if (m.video !== 'ok') setStatus('view-status', '⚠️ Kamera na iPhonu ' + (m.video === 'ended' ? 'se vypnula' : m.video === 'black' ? 'zamrzla (černý obraz)' : 'nedodává obraz') + '. Na iPhonu zavřete Safari úplně (2× Home, odsunout nahoru), otevřete stránku a spusťte kameru znovu – sledování se pak samo připojí.', 'err');
+        else if (viewCall) setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
+      });
+      viewConn.on('close', function () { if (live(g)) scheduleRetry(code, 3000, 'Kamera se odpojila.'); });
+      viewConn.on('error', function () { if (live(g)) scheduleRetry(code, 3000, 'Spojení s kamerou selhalo.'); });
     });
 
-    viewPeer.on('call', function (call) {
+    peer.on('call', function (call) {
+      if (!live(g)) { try { call.close(); } catch (e) {} return; }
       viewCall = call;
       call.answer();
       call.on('stream', function (stream) {
+        if (!live(g)) return;
         var v = $('view-video');
         v.srcObject = stream;
         v.muted = false;
@@ -297,17 +472,19 @@
         v.play().then(function () { $('view-unmute').style.display = 'none'; })
           .catch(function () { $('view-unmute').style.display = 'block'; });
         startMeter(stream);
-        watchIce(call, code);
+        watchIce(call, code, g);
+        startStatsWatchdog(call, code);
       });
-      call.on('close', function () { scheduleRetry(code, 3000, 'Video se ukončilo.'); });
-      call.on('error', function () { scheduleRetry(code, 3000, 'Chyba videa.'); });
+      call.on('close', function () { if (live(g)) scheduleRetry(code, 3000, 'Video se ukončilo.'); });
+      call.on('error', function () { if (live(g)) scheduleRetry(code, 3000, 'Chyba videa.'); });
     });
 
-    viewPeer.on('disconnected', function () {
-      if (viewActive && viewPeer && !viewPeer.destroyed) viewPeer.reconnect();
+    peer.on('disconnected', function () {
+      if (live(g) && !peer.destroyed) { try { peer.reconnect(); } catch (e) {} }
     });
 
-    viewPeer.on('error', function (err) {
+    peer.on('error', function (err) {
+      if (!live(g)) return;
       var t = err && err.type;
       if (t === 'peer-unavailable') scheduleRetry(code, 5000, 'Kamera s kódem ' + code + ' není online.');
       else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') scheduleRetry(code, 5000, 'Problém se sítí (' + t + ').');
@@ -315,15 +492,46 @@
     });
   }
 
-  function watchIce(call, code) {
+  function watchIce(call, code, g) {
     var pc = call.peerConnection;
     if (!pc) return;
     pc.oniceconnectionstatechange = function () {
+      if (!live(g)) return;
       var s = pc.iceConnectionState;
-      if (s === 'failed' || s === 'closed') scheduleRetry(code, 3000, 'Přenos se přerušil (' + s + ').');
-      else if (s === 'disconnected') setStatus('view-status', 'Přenos vázne, čekám na obnovení…', 'warn');
-      else if (s === 'connected' || s === 'completed') setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
+      clearTimeout(discTimer);
+      if (s === 'failed' || s === 'closed') scheduleRetry(code, 2000, 'Přenos se přerušil (' + s + ').');
+      else if (s === 'disconnected') {
+        setStatus('view-status', 'Přenos vázne, čekám na obnovení…', 'warn');
+        discTimer = setTimeout(function () { if (viewActive && pc.iceConnectionState === 'disconnected') scheduleRetry(code, 500, 'Přenos se neobnovil.'); }, 5000);
+      }
+      else if ((s === 'connected' || s === 'completed') && camReported === 'ok') setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
     };
+  }
+
+  /* hlídač: pokud 8 s nepřijdou žádná data videa, připojit znovu */
+  var lastBytes = -1, lastBytesAt = 0;
+  function startStatsWatchdog(call, code) {
+    clearInterval(statsTimer);
+    lastBytes = -1; lastBytesAt = Date.now();
+    statsTimer = setInterval(function () { checkAlive(false); }, 3000);
+  }
+  var viewBlackSince = 0;
+  function checkAlive(force) {
+    var call = viewCall, pc = call && call.peerConnection;
+    if (!viewActive || !pc || !pc.getStats) return;
+    var b = isBlackFrame($('view-video'));
+    if (b === true) { if (!viewBlackSince) viewBlackSince = Date.now(); } else if (b === false) viewBlackSince = 0;
+    if (viewBlackSince && Date.now() - viewBlackSince > 12000 && camReported === 'ok')
+      setStatus('view-status', '⚠️ Obraz je úplně černý – kamera na iPhonu nejspíš zamrzla (chyba iOS 12). Na iPhonu zavřete Safari úplně, otevřete stránku znovu a spusťte kameru; sledování se pak samo připojí.', 'err');
+    if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') { scheduleRetry(viewCode, 500, 'Spojení je uzavřené.'); return; }
+    pc.getStats(null).then(function (report) {
+      var bytes = 0;
+      report.forEach(function (r) { if (r.type === 'inbound-rtp' && (r.kind === 'video' || r.mediaType === 'video')) bytes += r.bytesReceived || 0; });
+      if (bytes > lastBytes) { lastBytes = bytes; lastBytesAt = Date.now(); return; }
+      var stale = Date.now() - lastBytesAt;
+      if (camReported !== 'ok' && Date.now() - camReportedAt < 15000) return;   // kamera sama hlásí výpadek, spojení drží
+      if (stale > 8000 || (force && stale > 3000)) scheduleRetry(viewCode, 500, 'Video ' + Math.round(stale / 1000) + ' s nepřichází.');
+    }).catch(function () {});
   }
 
   function startMeter(stream) {
@@ -362,7 +570,8 @@
 
   window.stopViewer = function () {
     viewActive = false;
-    clearTimeout(retryTimer);
+    clearTimeout(retryTimer); clearInterval(statsTimer); clearTimeout(discTimer);
+    keepAwake(false);
     if (meterRaf) cancelAnimationFrame(meterRaf);
     if (viewPeer) { try { viewPeer.destroy(); } catch (e) {} viewPeer = null; }
     $('view-video').srcObject = null;
@@ -370,6 +579,8 @@
     $('view-live').style.display = 'none';
     $('view-setup').style.display = 'block';
   };
+
+  window._dbg = function () { return { gen: gen, camPeer: camPeer, camConns: camConns, viewPeer: viewPeer, viewCall: viewCall, lastBytes: lastBytes, staleMs: Date.now() - lastBytesAt }; };
 
   window.addEventListener('pagehide', function () {
     if (camPeer) { try { camPeer.destroy(); } catch (e) {} }
