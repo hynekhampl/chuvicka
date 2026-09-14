@@ -70,8 +70,8 @@
     </select>
     <label>Kvalita obrazu</label>
     <select id="cam-quality" style="margin:6px 0 12px">
-      <option value="low">Nízká – 320×240, nejstabilnější na mobilních datech</option>
-      <option value="mid" selected>Střední – 640×480</option>
+      <option value="low" selected>Nízká – 320×240, ~200 kb/s (doporučeno, nejstabilnější)</option>
+      <option value="mid">Střední – 640×480, ~500 kb/s</option>
     </select>
     <label class="chk"><input type="checkbox" id="cam-audio" checked> Přenášet i mikrofon</label>
     <button class="btn big" style="margin-top:8px" onclick="startCamera()">▶ Spustit kameru</button>
@@ -102,7 +102,10 @@
   </div>
   <div id="view-live" style="display:none">
     <div id="view-status" class="status">Připojuji se…</div>
-    <video id="view-video" autoplay playsinline style="margin-top:12px"></video>
+    <div style="position:relative;margin-top:12px">
+      <video id="view-video" autoplay playsinline></video>
+      <canvas id="view-freeze" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;border-radius:12px;opacity:.6"></canvas>
+    </div>
     <div class="meter" style="margin-top:10px"><div id="view-meter"></div></div>
     <div class="hint" style="text-align:center">hlasitost zvuku z pokoje</div>
     <div class="hint" style="margin-top:8px">Stránka drží displej rozsvícený. Nechte ji ale v popředí – po přepnutí do jiné aplikace nebo zamknutí telefonu se přenos zastaví a po návratu se sám obnoví.</div>
@@ -166,10 +169,10 @@
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     $('https-warn').style.display = 'block';
   }
-  var saved = null; try { saved = JSON.parse(localStorage.getItem('chuvicka_cam') || 'null'); } catch (e) {}
+  var saved = null; try { saved = JSON.parse(localStorage.getItem('chuvicka_cam2') || 'null'); } catch (e) {}
   if (saved && saved.code) {
     $('cam-code').value = saved.code; $('cam-facing').value = saved.facing || 'environment';
-    $('cam-quality').value = saved.quality || 'mid'; $('cam-audio').checked = saved.audio !== false;
+    $('cam-quality').value = saved.quality || 'low'; $('cam-audio').checked = saved.audio !== false;
   } else $('cam-code').value = randomCode();
   if (qs.code) $('cam-code').value = cleanCode(qs.code);
   if (qs.code) $('view-code').value = cleanCode(qs.code);
@@ -222,7 +225,7 @@
   function camConstraints() {
     var low = $('cam-quality').value === 'low';
     return {
-      video: { facingMode: $('cam-facing').value, width: { ideal: low ? 320 : 640 }, height: { ideal: low ? 240 : 480 }, frameRate: { ideal: low ? 10 : 15, max: 20 } },
+      video: { facingMode: $('cam-facing').value, width: { ideal: low ? 320 : 640 }, height: { ideal: low ? 240 : 480 }, frameRate: { ideal: low ? 8 : 12, max: 15 } },
       audio: $('cam-audio').checked
     };
   }
@@ -272,7 +275,7 @@
     var low = $('cam-quality').value === 'low';
     camCode = code;
     keepAwake(true);
-    try { localStorage.setItem('chuvicka_cam', JSON.stringify({ code: code, facing: $('cam-facing').value, quality: $('cam-quality').value, audio: $('cam-audio').checked })); } catch (e) {}
+    try { localStorage.setItem('chuvicka_cam2', JSON.stringify({ code: code, facing: $('cam-facing').value, quality: $('cam-quality').value, audio: $('cam-audio').checked })); } catch (e) {}
 
     var got;
     if (TEST) {
@@ -319,8 +322,9 @@
         camConns[conn.peer] = conn;
         updateCamStatus();
         try { conn.send({ type: 'state', video: camVideoState(), at: Date.now() }); } catch (e) {}
-        var call = camPeer.call(conn.peer, camStream);
-        capBitrate(call, $('cam-quality').value === 'low' ? 250000 : 600000);
+        var kbps = $('cam-quality').value === 'low' ? 200 : 500;
+        var call = camPeer.call(conn.peer, camStream, { metadata: { kbps: kbps } });
+        capBitrate(call, kbps * 1000);
         watchCamIce(call, conn);
         conn.on('close', function () { delete camConns[conn.peer]; try { call.close(); } catch (e) {} updateCamStatus(); });
         conn.on('error', function () { delete camConns[conn.peer]; updateCamStatus(); });
@@ -437,6 +441,7 @@
 
   function connectViewer(code) {
     var g = ++gen;                       // každé připojení má své číslo; události starých spojení se ignorují
+    freezeFrame(true);
     clearTimeout(retryTimer); clearInterval(statsTimer); clearTimeout(discTimer);
     if (viewPeer) { var old = viewPeer; viewPeer = null; try { old.destroy(); } catch (e) {} }
     viewConn = null; viewCall = null;
@@ -462,13 +467,15 @@
     peer.on('call', function (call) {
       if (!live(g)) { try { call.close(); } catch (e) {} return; }
       viewCall = call;
-      call.answer();
+      var kbps = (call.metadata && call.metadata.kbps) || 300;
+      call.answer(undefined, { sdpTransform: function (sdp) { return limitSdp(sdp, kbps); } });
       call.on('stream', function (stream) {
         if (!live(g)) return;
         var v = $('view-video');
         v.srcObject = stream;
         v.muted = false;
         setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
+        v.onplaying = function () { freezeFrame(false); };
         v.play().then(function () { $('view-unmute').style.display = 'none'; })
           .catch(function () { $('view-unmute').style.display = 'block'; });
         startMeter(stream);
@@ -492,6 +499,21 @@
     });
   }
 
+  /* do m=video sekce doplní b=AS / b=TIAS – odesílatel (iPhone) pak nepřekročí daný tok */
+  function limitSdp(sdp, kbps) {
+    try {
+      var lines = sdp.split('\r\n'), out = [], inVideo = false;
+      for (var i = 0; i < lines.length; i++) {
+        var l = lines[i];
+        if (l.indexOf('m=') === 0) inVideo = l.indexOf('m=video') === 0;
+        if (l.indexOf('b=') === 0 && inVideo) continue;
+        out.push(l);
+        if (inVideo && l.indexOf('c=') === 0) { out.push('b=AS:' + kbps); out.push('b=TIAS:' + (kbps * 1000)); }
+      }
+      return out.join('\r\n');
+    } catch (e) { return sdp; }
+  }
+
   function watchIce(call, code, g) {
     var pc = call.peerConnection;
     if (!pc) return;
@@ -502,7 +524,7 @@
       if (s === 'failed' || s === 'closed') scheduleRetry(code, 2000, 'Přenos se přerušil (' + s + ').');
       else if (s === 'disconnected') {
         setStatus('view-status', 'Přenos vázne, čekám na obnovení…', 'warn');
-        discTimer = setTimeout(function () { if (viewActive && pc.iceConnectionState === 'disconnected') scheduleRetry(code, 500, 'Přenos se neobnovil.'); }, 5000);
+        discTimer = setTimeout(function () { if (viewActive && pc.iceConnectionState === 'disconnected') scheduleRetry(code, 500, 'Přenos se neobnovil.'); }, 15000);
       }
       else if ((s === 'connected' || s === 'completed') && camReported === 'ok') setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
     };
@@ -530,8 +552,20 @@
       if (bytes > lastBytes) { lastBytes = bytes; lastBytesAt = Date.now(); return; }
       var stale = Date.now() - lastBytesAt;
       if (camReported !== 'ok' && Date.now() - camReportedAt < 15000) return;   // kamera sama hlásí výpadek, spojení drží
-      if (stale > 8000 || (force && stale > 3000)) scheduleRetry(viewCode, 500, 'Video ' + Math.round(stale / 1000) + ' s nepřichází.');
+      if (stale > 15000 || (force && stale > 5000)) scheduleRetry(viewCode, 500, 'Video ' + Math.round(stale / 1000) + ' s nepřichází.');
+      else if (stale > 4000) setStatus('view-status', 'Přenos vázne (' + Math.round(stale / 1000) + ' s bez dat), čekám na obnovení…', 'warn');
     }).catch(function () {});
+  }
+
+  function freezeFrame(on) {
+    var c = $('view-freeze'), v = $('view-video');
+    if (!on) { c.style.display = 'none'; return; }
+    try {
+      if (!v.videoWidth) return;
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0);
+      c.style.display = 'block';
+    } catch (e) {}
   }
 
   function startMeter(stream) {
@@ -574,7 +608,7 @@
     keepAwake(false);
     if (meterRaf) cancelAnimationFrame(meterRaf);
     if (viewPeer) { try { viewPeer.destroy(); } catch (e) {} viewPeer = null; }
-    $('view-video').srcObject = null;
+    $('view-video').srcObject = null; freezeFrame(false);
     $('view-meter').style.width = '0';
     $('view-live').style.display = 'none';
     $('view-setup').style.display = 'block';
