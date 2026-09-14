@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Chůvička</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #0f1115; color: #e8eaf0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 16px; display: flex; flex-direction: column; min-height: 100%; }
+  h1 { font-size: 22px; margin: 8px 0 16px; text-align: center; }
+  h1 small { display: block; font-weight: 400; font-size: 13px; color: #8b91a0; margin-top: 4px; }
+  .screen { display: none; flex-direction: column; gap: 12px; }
+  .screen.active { display: flex; }
+  .btn { display: block; width: 100%; padding: 16px; font-size: 18px; font-weight: 600; border: 0; border-radius: 12px; background: #2d6cdf; color: #fff; text-align: center; cursor: pointer; }
+  .btn.secondary { background: #262a33; color: #e8eaf0; }
+  .btn.danger { background: #b3261e; }
+  .btn:disabled { opacity: .45; }
+  .big { padding: 26px 16px; font-size: 20px; }
+  label { font-size: 14px; color: #a9afbe; }
+  input[type=text], select { width: 100%; padding: 14px; font-size: 20px; border-radius: 10px; border: 1px solid #333a48; background: #161a22; color: #fff; letter-spacing: 3px; text-transform: uppercase; text-align: center; font-family: Menlo, monospace; }
+  select { letter-spacing: 0; text-transform: none; font-family: inherit; font-size: 17px; text-align: left; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .status { padding: 12px 14px; border-radius: 10px; background: #161a22; font-size: 15px; line-height: 1.4; }
+  .status.ok { background: #14331f; color: #9be0a8; }
+  .status.warn { background: #3a2c10; color: #f5c96a; }
+  .status.err { background: #3a1616; color: #f0a0a0; }
+  video { width: 100%; max-height: 60vh; background: #000; border-radius: 12px; display: block; object-fit: contain; }
+  .hint { font-size: 13px; color: #8b91a0; line-height: 1.45; }
+  .hint b { color: #c9ceda; }
+  .code-big { text-align: center; font-family: Menlo, monospace; font-size: 34px; letter-spacing: 6px; padding: 10px; background: #161a22; border-radius: 12px; }
+  .meter { height: 10px; background: #1c2029; border-radius: 6px; overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: #4fd18a; transition: width .08s linear; }
+  #dim { display: none; position: fixed; inset: 0; background: #000; z-index: 99; color: #333; font-size: 14px; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+  #dim.on { display: flex; }
+  .foot { margin-top: auto; padding-top: 18px; text-align: center; }
+  .link { color: #8b91a0; font-size: 13px; background: none; border: 0; text-decoration: underline; cursor: pointer; }
+  .chk { display: flex; align-items: center; gap: 10px; font-size: 16px; color: #e8eaf0; padding: 6px 0; }
+  .chk input { width: 22px; height: 22px; }
+</style>
+</head>
+<body>
+
+<h1>👶 Chůvička <small>kamera + mikrofon přes prohlížeč, bez aplikace</small></h1>
+
+<!-- ÚVOD -->
+<div id="s-home" class="screen active">
+  <button class="btn big" onclick="go('cam')">📷 Tohle je KAMERA<br><span style="font-weight:400;font-size:14px">(telefon u dítěte)</span></button>
+  <button class="btn big secondary" onclick="go('view')">👀 Tohle je SLEDOVÁNÍ<br><span style="font-weight:400;font-size:14px">(druhý telefon / počítač)</span></button>
+  <div id="https-warn" class="status err" style="display:none">Stránka neběží přes HTTPS – kamera v Safari nepůjde spustit. Otevřete ji přes https:// adresu.</div>
+  <div class="hint">Na obou zařízeních otevřete tuhle stránku. Na telefonu u dítěte zvolte <b>KAMERA</b>, opište si kód a na druhém zařízení zvolte <b>SLEDOVÁNÍ</b> a kód zadejte.</div>
+</div>
+
+<!-- KAMERA -->
+<div id="s-cam" class="screen">
+  <div id="cam-setup">
+    <label>Kód místnosti (zadáte ho na druhém zařízení)</label>
+    <div class="row" style="margin:6px 0 12px">
+      <input type="text" id="cam-code" maxlength="8" autocapitalize="characters" autocorrect="off" spellcheck="false">
+      <button class="btn secondary" style="flex:0 0 auto;width:auto" onclick="newCode()">🎲</button>
+    </div>
+    <label>Kamera</label>
+    <select id="cam-facing" style="margin:6px 0 12px">
+      <option value="environment">Zadní (lepší obraz, telefon položit displejem nahoru)</option>
+      <option value="user">Přední (telefon opřít displejem k dítěti)</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="cam-audio" checked> Přenášet i mikrofon</label>
+    <button class="btn big" style="margin-top:8px" onclick="startCamera()">▶ Spustit kameru</button>
+    <div class="hint" style="margin-top:10px">Safari se zeptá na povolení kamery a mikrofonu – povolte. Poté v Nastavení iPhonu vypněte automatický zámek: <b>Nastavení → Zobrazení a jas → Uzamknout → Nikdy</b>, jinak se kamera po chvíli vypne. Stránka musí zůstat otevřená v popředí.</div>
+  </div>
+
+  <div id="cam-live" style="display:none">
+    <div class="code-big" id="cam-code-show"></div>
+    <div class="hint" style="text-align:center;margin:6px 0 10px">Na druhém zařízení zvolte SLEDOVÁNÍ a zadejte tento kód</div>
+    <div id="cam-status" class="status">Připojuji se…</div>
+    <video id="cam-video" autoplay playsinline muted style="margin-top:12px"></video>
+    <div class="row" style="margin-top:12px">
+      <button class="btn secondary" onclick="dim(true)">🌙 Ztmavit displej</button>
+      <button class="btn danger" onclick="stopCamera()">■ Ukončit</button>
+    </div>
+    <div class="hint" style="margin-top:10px">Ztmavení displeje jen zakryje obraz černou plochou (šetří baterii a nesvítí do místnosti), kamera běží dál. Klepnutím ho zase zobrazíte.</div>
+  </div>
+</div>
+
+<!-- SLEDOVÁNÍ -->
+<div id="s-view" class="screen">
+  <div id="view-setup">
+    <label>Kód z telefonu u dítěte</label>
+    <input type="text" id="view-code" maxlength="8" autocapitalize="characters" autocorrect="off" spellcheck="false" style="margin:6px 0 12px" placeholder="např. K7P2QX">
+    <button class="btn big" onclick="startViewer()">👀 Připojit</button>
+  </div>
+  <div id="view-live" style="display:none">
+    <div id="view-status" class="status">Připojuji se…</div>
+    <video id="view-video" autoplay playsinline style="margin-top:12px"></video>
+    <div class="meter" style="margin-top:10px"><div id="view-meter"></div></div>
+    <div class="hint" style="text-align:center">hlasitost zvuku z pokoje</div>
+    <button class="btn" id="view-unmute" style="display:none;margin-top:10px" onclick="unmute()">🔊 Klepněte pro zapnutí zvuku</button>
+    <div class="row" style="margin-top:12px">
+      <button class="btn secondary" onclick="fullscreen()">⛶ Celá obrazovka</button>
+      <button class="btn danger" onclick="stopViewer()">■ Odpojit</button>
+    </div>
+  </div>
+</div>
+
+<div class="foot"><button class="link" onclick="go('home')">← zpět na úvod</button></div>
+
+<div id="dim" onclick="dim(false)">Kamera běží.<br>Klepnutím zobrazíte obraz.</div>
+
+<script src="peerjs.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var PREFIX = 'chuvicka-v1-';
+  var ICE = { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ]};
+  var qs = {};
+  location.search.replace(/^\?/, '').split('&').forEach(function (p) {
+    var kv = p.split('='); if (kv[0]) qs[kv[0]] = decodeURIComponent(kv[1] || '');
+  });
+  var TEST = qs.test === '1';
+
+  function $(id) { return document.getElementById(id); }
+  function setStatus(id, text, cls) { var el = $(id); el.textContent = text; el.className = 'status' + (cls ? ' ' + cls : ''); }
+  function cleanCode(v) { return (v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
+  function randomCode() {
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '';
+    for (var i = 0; i < 6; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+    return s;
+  }
+
+  window.go = function (name) {
+    ['home', 'cam', 'view'].forEach(function (n) { $('s-' + n).className = 'screen' + (n === name ? ' active' : ''); });
+  };
+  window.newCode = function () { $('cam-code').value = randomCode(); };
+  window.dim = function (on) { $('dim').className = on ? 'on' : ''; };
+
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    $('https-warn').style.display = 'block';
+  }
+  $('cam-code').value = qs.code ? cleanCode(qs.code) : randomCode();
+  if (qs.code) $('view-code').value = cleanCode(qs.code);
+  if (qs.mode === 'cam' || qs.mode === 'view') go(qs.mode);
+
+  /* ========== KAMERA ========== */
+  var camPeer = null, camStream = null, camConns = {};
+
+  function getTestStream() {
+    var c = document.createElement('canvas'); c.width = 640; c.height = 480;
+    var ctx = c.getContext('2d');
+    setInterval(function () {
+      ctx.fillStyle = '#123'; ctx.fillRect(0, 0, 640, 480);
+      ctx.fillStyle = '#fff'; ctx.font = '48px sans-serif';
+      ctx.fillText('TEST ' + new Date().toLocaleTimeString(), 60, 250);
+    }, 200);
+    return c.captureStream(10);
+  }
+
+  window.startCamera = function () {
+    var code = cleanCode($('cam-code').value);
+    if (code.length < 4) { alert('Kód musí mít aspoň 4 znaky.'); return; }
+    $('cam-code').value = code;
+    var facing = $('cam-facing').value;
+    var wantAudio = $('cam-audio').checked;
+
+    var got;
+    if (TEST) {
+      got = Promise.resolve(getTestStream());
+    } else if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Tento prohlížeč nepodporuje přístup ke kameře. Na iPhonu použijte Safari a adresu přes https://.');
+      return;
+    } else {
+      got = navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 20 } },
+        audio: wantAudio
+      });
+    }
+
+    got.then(function (stream) {
+      camStream = stream;
+      $('cam-setup').style.display = 'none';
+      $('cam-live').style.display = 'block';
+      $('cam-code-show').textContent = code;
+      var v = $('cam-video'); v.srcObject = stream; v.play().catch(function () {});
+      openCamPeer(code);
+    }).catch(function (e) {
+      alert('Kameru se nepodařilo spustit: ' + (e && e.name ? e.name + ' – ' : '') + (e && e.message ? e.message : e) +
+        '\n\nZkontrolujte, že jste povolili kameru a mikrofon a že stránka běží přes https://.');
+    });
+  };
+
+  function updateCamStatus() {
+    var n = Object.keys(camConns).length;
+    if (n === 0) setStatus('cam-status', 'Kamera běží. Čeká se na připojení sledování…', 'warn');
+    else setStatus('cam-status', '● Sleduje se (' + n + ' zařízení). Kamera a mikrofon se přenáší.', 'ok');
+  }
+
+  function openCamPeer(code) {
+    if (camPeer) { try { camPeer.destroy(); } catch (e) {} }
+    setStatus('cam-status', 'Připojuji se k signalizačnímu serveru…');
+    camPeer = new Peer(PREFIX + code, { config: ICE, debug: 1 });
+
+    camPeer.on('open', function () { updateCamStatus(); });
+
+    camPeer.on('connection', function (conn) {
+      conn.on('open', function () {
+        camConns[conn.peer] = conn;
+        updateCamStatus();
+        var call = camPeer.call(conn.peer, camStream);
+        conn.on('close', function () { delete camConns[conn.peer]; try { call.close(); } catch (e) {} updateCamStatus(); });
+        conn.on('error', function () { delete camConns[conn.peer]; updateCamStatus(); });
+      });
+    });
+
+    camPeer.on('disconnected', function () {
+      setStatus('cam-status', 'Spojení se serverem vypadlo, obnovuji…', 'warn');
+      setTimeout(function () { if (camPeer && !camPeer.destroyed) camPeer.reconnect(); }, 1500);
+    });
+
+    camPeer.on('error', function (err) {
+      var t = err && err.type;
+      if (t === 'unavailable-id') {
+        setStatus('cam-status', 'Kód "' + code + '" už někdo používá (nebo stará relace ještě nevypršela). Zkuste jiný kód.', 'err');
+        stopCamera(true);
+      } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
+        setStatus('cam-status', 'Problém se sítí (' + t + '). Zkouším znovu…', 'err');
+        setTimeout(function () { if (camStream) openCamPeer(code); }, 4000);
+      } else if (t !== 'peer-unavailable') {
+        setStatus('cam-status', 'Chyba: ' + t + ' ' + (err.message || ''), 'err');
+      }
+    });
+  }
+
+  window.stopCamera = function (keepStream) {
+    if (camPeer) { try { camPeer.destroy(); } catch (e) {} camPeer = null; }
+    camConns = {};
+    if (!keepStream) {
+      if (camStream) { camStream.getTracks().forEach(function (t) { t.stop(); }); camStream = null; }
+      $('cam-video').srcObject = null;
+      $('cam-live').style.display = 'none';
+      $('cam-setup').style.display = 'block';
+      dim(false);
+    }
+  };
+
+  /* ========== SLEDOVÁNÍ ========== */
+  var viewPeer = null, viewConn = null, viewCall = null, viewActive = false, retryTimer = null, audioCtx = null, meterRaf = null;
+
+  window.startViewer = function () {
+    var code = cleanCode($('view-code').value);
+    if (code.length < 4) { alert('Zadejte kód z telefonu u dítěte.'); return; }
+    $('view-code').value = code;
+    viewActive = true;
+    $('view-setup').style.display = 'none';
+    $('view-live').style.display = 'block';
+    // AudioContext must be created inside a user gesture (Safari)
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.resume) audioCtx.resume(); } catch (e) { audioCtx = null; }
+    connectViewer(code);
+  };
+
+  function scheduleRetry(code, ms, msg) {
+    if (!viewActive) return;
+    if (msg) setStatus('view-status', msg + ' Zkusím znovu za ' + Math.round(ms / 1000) + ' s…', 'warn');
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(function () { if (viewActive) connectViewer(code); }, ms);
+  }
+
+  function connectViewer(code) {
+    if (viewPeer) { try { viewPeer.destroy(); } catch (e) {} }
+    viewConn = null; viewCall = null;
+    setStatus('view-status', 'Připojuji se…');
+    viewPeer = new Peer(undefined, { config: ICE, debug: 1 });
+
+    viewPeer.on('open', function () {
+      setStatus('view-status', 'Hledám kameru s kódem ' + code + '…');
+      viewConn = viewPeer.connect(PREFIX + code, { reliable: true });
+      viewConn.on('open', function () { setStatus('view-status', 'Kamera nalezena, čekám na video…', 'ok'); });
+      viewConn.on('close', function () { scheduleRetry(code, 3000, 'Kamera se odpojila.'); });
+      viewConn.on('error', function () { scheduleRetry(code, 3000, 'Spojení s kamerou selhalo.'); });
+    });
+
+    viewPeer.on('call', function (call) {
+      viewCall = call;
+      call.answer();
+      call.on('stream', function (stream) {
+        var v = $('view-video');
+        v.srcObject = stream;
+        v.muted = false;
+        setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
+        v.play().then(function () { $('view-unmute').style.display = 'none'; })
+          .catch(function () { $('view-unmute').style.display = 'block'; });
+        startMeter(stream);
+        watchIce(call, code);
+      });
+      call.on('close', function () { scheduleRetry(code, 3000, 'Video se ukončilo.'); });
+      call.on('error', function () { scheduleRetry(code, 3000, 'Chyba videa.'); });
+    });
+
+    viewPeer.on('disconnected', function () {
+      if (viewActive && viewPeer && !viewPeer.destroyed) viewPeer.reconnect();
+    });
+
+    viewPeer.on('error', function (err) {
+      var t = err && err.type;
+      if (t === 'peer-unavailable') scheduleRetry(code, 5000, 'Kamera s kódem ' + code + ' není online.');
+      else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') scheduleRetry(code, 5000, 'Problém se sítí (' + t + ').');
+      else setStatus('view-status', 'Chyba: ' + t + ' ' + (err.message || ''), 'err');
+    });
+  }
+
+  function watchIce(call, code) {
+    var pc = call.peerConnection;
+    if (!pc) return;
+    pc.oniceconnectionstatechange = function () {
+      var s = pc.iceConnectionState;
+      if (s === 'failed' || s === 'closed') scheduleRetry(code, 3000, 'Přenos se přerušil (' + s + ').');
+      else if (s === 'disconnected') setStatus('view-status', 'Přenos vázne, čekám na obnovení…', 'warn');
+      else if (s === 'connected' || s === 'completed') setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
+    };
+  }
+
+  function startMeter(stream) {
+    if (meterRaf) cancelAnimationFrame(meterRaf);
+    if (!audioCtx || !stream.getAudioTracks().length) { $('view-meter').style.width = '0'; return; }
+    try {
+      var src = audioCtx.createMediaStreamSource(stream);
+      var an = audioCtx.createAnalyser(); an.fftSize = 512; an.smoothingTimeConstant = 0.6;
+      src.connect(an);
+      var buf = new Uint8Array(an.frequencyBinCount);
+      (function tick() {
+        an.getByteTimeDomainData(buf);
+        var sum = 0;
+        for (var i = 0; i < buf.length; i++) { var d = (buf[i] - 128) / 128; sum += d * d; }
+        var rms = Math.sqrt(sum / buf.length);
+        var pct = Math.min(100, Math.round(rms * 300));
+        $('view-meter').style.width = pct + '%';
+        $('view-meter').style.background = pct > 60 ? '#f0a0a0' : '#4fd18a';
+        meterRaf = requestAnimationFrame(tick);
+      })();
+    } catch (e) { $('view-meter').style.width = '0'; }
+  }
+
+  window.unmute = function () {
+    var v = $('view-video'); v.muted = false;
+    if (audioCtx && audioCtx.resume) audioCtx.resume();
+    v.play().then(function () { $('view-unmute').style.display = 'none'; }).catch(function () {});
+  };
+
+  window.fullscreen = function () {
+    var v = $('view-video');
+    if (v.requestFullscreen) v.requestFullscreen();
+    else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+    else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+  };
+
+  window.stopViewer = function () {
+    viewActive = false;
+    clearTimeout(retryTimer);
+    if (meterRaf) cancelAnimationFrame(meterRaf);
+    if (viewPeer) { try { viewPeer.destroy(); } catch (e) {} viewPeer = null; }
+    $('view-video').srcObject = null;
+    $('view-meter').style.width = '0';
+    $('view-live').style.display = 'none';
+    $('view-setup').style.display = 'block';
+  };
+
+  window.addEventListener('pagehide', function () {
+    if (camPeer) { try { camPeer.destroy(); } catch (e) {} }
+    if (viewPeer) { try { viewPeer.destroy(); } catch (e) {} }
+  });
+})();
+</script>
+</body>
+</html>
