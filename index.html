@@ -114,6 +114,8 @@
       <button class="btn secondary" onclick="fullscreen()">⛶ Celá obrazovka</button>
       <button class="btn danger" onclick="stopViewer()">■ Odpojit</button>
     </div>
+    <button class="link" style="margin-top:10px" onclick="toggleDiag()">🔧 Diagnostika</button>
+    <pre id="diag" style="display:none;font-size:12px;line-height:1.4;background:#161a22;padding:10px;border-radius:10px;white-space:pre-wrap;word-break:break-word;margin:6px 0 0"></pre>
   </div>
 </div>
 
@@ -156,7 +158,7 @@
       ctx.drawImage(video, 0, 0, 16, 12);
       var d = ctx.getImageData(0, 0, 16, 12).data, max = 0;
       for (var i = 0; i < d.length; i += 4) { if (d[i] > max) max = d[i]; if (d[i + 1] > max) max = d[i + 1]; if (d[i + 2] > max) max = d[i + 2]; }
-      return max <= 2;
+      return max === 0;
     } catch (e) { return null; }
   }
 
@@ -187,14 +189,14 @@
     var t = camStream.getVideoTracks()[0];
     if (!t || t.readyState === 'ended') return 'ended';
     if (t.muted) return 'muted';
-    if (blackSince && Date.now() - blackSince > 10000) return 'black';
+    if (blackSince && Date.now() - blackSince > 20000) return 'black';
     return 'ok';
   }
   function probeCamBlack() {
     var b = isBlackFrame($('cam-video'));
     if (b === true) { if (!blackSince) blackSince = Date.now(); }
     else if (b === false) { blackSince = 0; autoRestored = false; }
-    if (blackSince && Date.now() - blackSince > 10000 && !autoRestored && !TEST) { autoRestored = true; restoreCamera(); }
+    /* automatické obnovení schválně ne – v tmavém pokoji by mohlo rušit; uživatel má tlačítko */
   }
   function broadcastState() {
     var msg = { type: 'state', video: camVideoState(), at: Date.now() };
@@ -458,7 +460,7 @@
         if (!live(g) || !m || m.type !== 'state') return;
         camReported = m.video; camReportedAt = Date.now();
         if (m.video !== 'ok') setStatus('view-status', '⚠️ Kamera na iPhonu ' + (m.video === 'ended' ? 'se vypnula' : m.video === 'black' ? 'zamrzla (černý obraz)' : 'nedodává obraz') + '. Na iPhonu zavřete Safari úplně (2× Home, odsunout nahoru), otevřete stránku a spusťte kameru znovu – sledování se pak samo připojí.', 'err');
-        else if (viewCall) setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
+        else if (viewCall && $('view-status').className.indexOf('err') >= 0) setStatus('view-status', '● Živě – sledujete kameru ' + code, 'ok');
       });
       viewConn.on('close', function () { if (live(g)) scheduleRetry(code, 3000, 'Kamera se odpojila.'); });
       viewConn.on('error', function () { if (live(g)) scheduleRetry(code, 3000, 'Spojení s kamerou selhalo.'); });
@@ -534,26 +536,71 @@
   var lastBytes = -1, lastBytesAt = 0;
   function startStatsWatchdog(call, code) {
     clearInterval(statsTimer);
-    lastBytes = -1; lastBytesAt = Date.now();
+    lastBytes = -1; lastFrames = -1; lastVT = -1; lastBytesAt = Date.now(); prevStats = null;
     statsTimer = setInterval(function () { checkAlive(false); }, 3000);
   }
-  var viewBlackSince = 0;
+  var viewBlackSince = 0, lastFrames = -1, lastVT = -1, diag = { log: [], on: false }, prevStats = null;
+  function logEvent(t) { diag.log.push(new Date().toTimeString().slice(0, 8) + ' ' + t); if (diag.log.length > 14) diag.log.shift(); }
+  var _setStatus = setStatus;
+  setStatus = function (id, text, cls) { if (id === 'view-status' && $('view-status').textContent !== text) logEvent(text.slice(0, 70)); _setStatus(id, text, cls); };
+  window.toggleDiag = function () { diag.on = !diag.on; $('diag').style.display = diag.on ? 'block' : 'none'; };
+  function renderDiag(st) {
+    if (!diag.on) return;
+    var v = $('view-video');
+    var lines = [
+      'prohlížeč: ' + navigator.userAgent.replace(/Mozilla\/5\.0 /, '').slice(0, 90),
+      'připojení č.: ' + gen + '   ICE: ' + st.ice + '   cesta: ' + (st.path || '?') + '   RTT: ' + (st.rtt != null ? Math.round(st.rtt * 1000) + ' ms' : '?'),
+      'video: ' + v.videoWidth + '×' + v.videoHeight + '  ' + (st.fps != null ? st.fps.toFixed(1) : '?') + ' fps  ' + (st.kbps != null ? Math.round(st.kbps) + ' kb/s' : '?') + '  ztráta paketů: ' + (st.lost != null ? st.lost : '?') + '/3s',
+      'audio: ' + (st.akbps != null ? Math.round(st.akbps) + ' kb/s' : '?') + '   bez dat: ' + Math.round((Date.now() - lastBytesAt) / 1000) + ' s   kamera hlásí: ' + camReported,
+      '— události —'
+    ].concat(diag.log);
+    $('diag').textContent = lines.join('\n');
+  }
   function checkAlive(force) {
     var call = viewCall, pc = call && call.peerConnection;
     if (!viewActive || !pc || !pc.getStats) return;
     var b = isBlackFrame($('view-video'));
     if (b === true) { if (!viewBlackSince) viewBlackSince = Date.now(); } else if (b === false) viewBlackSince = 0;
-    if (viewBlackSince && Date.now() - viewBlackSince > 12000 && camReported === 'ok')
+    if (viewBlackSince && Date.now() - viewBlackSince > 25000 && camReported === 'ok')
       setStatus('view-status', '⚠️ Obraz je úplně černý – kamera na iPhonu nejspíš zamrzla (chyba iOS 12). Na iPhonu zavřete Safari úplně, otevřete stránku znovu a spusťte kameru; sledování se pak samo připojí.', 'err');
     if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') { scheduleRetry(viewCode, 500, 'Spojení je uzavřené.'); return; }
     pc.getStats(null).then(function (report) {
-      var bytes = 0;
-      report.forEach(function (r) { if (r.type === 'inbound-rtp' && (r.kind === 'video' || r.mediaType === 'video')) bytes += r.bytesReceived || 0; });
-      if (bytes > lastBytes) { lastBytes = bytes; lastBytesAt = Date.now(); return; }
-      var stale = Date.now() - lastBytesAt;
-      if (camReported !== 'ok' && Date.now() - camReportedAt < 15000) return;   // kamera sama hlásí výpadek, spojení drží
-      if (stale > 15000 || (force && stale > 5000)) scheduleRetry(viewCode, 500, 'Video ' + Math.round(stale / 1000) + ' s nepřichází.');
-      else if (stale > 4000) setStatus('view-status', 'Přenos vázne (' + Math.round(stale / 1000) + ' s bez dat), čekám na obnovení…', 'warn');
+      var bytes = 0, abytes = 0, frames = 0, lost = 0, fps = null, rtt = null, path = null, pairs = {}, cands = {};
+      report.forEach(function (r) {
+        if (r.type === 'inbound-rtp') {
+          var isVideo = r.kind === 'video' || r.mediaType === 'video';
+          var isAudio = r.kind === 'audio' || r.mediaType === 'audio';
+          if (isVideo) { bytes += r.bytesReceived || 0; frames += r.framesDecoded || 0; lost += r.packetsLost || 0; if (r.framesPerSecond != null) fps = r.framesPerSecond; }
+          else if (isAudio) abytes += r.bytesReceived || 0;
+          else bytes += r.bytesReceived || 0;   // prohlížeč neuvádí typ – počítej vše
+        }
+        if (r.type === 'candidate-pair') pairs[r.id] = r;
+        if (r.type === 'local-candidate' || r.type === 'remote-candidate') cands[r.id] = r;
+        if (r.type === 'transport' && r.selectedCandidatePairId) path = r.selectedCandidatePairId;
+      });
+      var pair = path ? pairs[path] : null;
+      if (!pair) Object.keys(pairs).forEach(function (k) { if (pairs[k].selected || pairs[k].nominated && pairs[k].state === 'succeeded') pair = pairs[k]; });
+      var st = { ice: pc.iceConnectionState, lost: null, fps: fps };
+      if (pair) {
+        st.rtt = pair.currentRoundTripTime;
+        var lc = cands[pair.localCandidateId], rc = cands[pair.remoteCandidateId];
+        st.path = (lc ? lc.candidateType : '?') + '→' + (rc ? rc.candidateType : '?') + (lc && lc.candidateType === 'host' && rc && rc.candidateType === 'host' ? ' (stejná síť)' : '');
+      }
+      var now = Date.now();
+      if (prevStats) { var dt = (now - prevStats.at) / 1000; st.kbps = (bytes - prevStats.bytes) * 8 / 1000 / dt; st.akbps = (abytes - prevStats.abytes) * 8 / 1000 / dt; st.lost = lost - prevStats.lost; if (fps == null && dt > 0) st.fps = (frames - prevStats.frames) / dt; }
+      prevStats = { at: now, bytes: bytes, abytes: abytes, frames: frames, lost: lost };
+      var v = $('view-video'), vt = v.currentTime;
+      var moved = bytes > lastBytes || frames > lastFrames || vt > lastVT;
+      if (bytes > lastBytes) lastBytes = bytes;
+      if (frames > lastFrames) lastFrames = frames;
+      if (vt > lastVT) lastVT = vt;
+      if (moved) lastBytesAt = now;
+      renderDiag(st);
+      if (moved) return;
+      var stale = now - lastBytesAt;
+      if (camReported !== 'ok' && now - camReportedAt < 15000) return;   // kamera sama hlásí výpadek, spojení drží
+      if (stale > 20000 || (force && stale > 6000)) scheduleRetry(viewCode, 500, 'Video ' + Math.round(stale / 1000) + ' s nepřichází.');
+      else if (stale > 6000) setStatus('view-status', 'Přenos vázne (' + Math.round(stale / 1000) + ' s bez dat), čekám na obnovení…', 'warn');
     }).catch(function () {});
   }
 
